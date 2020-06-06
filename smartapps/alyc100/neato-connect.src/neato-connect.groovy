@@ -13,7 +13,8 @@
  *  for the specific language governing permissions and limitations under the License.
  *
  *  VERSION HISTORY
- *	17-04-2020: 1.2.6c - Notification workaround to fix issue caused by change in ST platform.
+ *	06-06-2020:	1.2.7 - Added functionality to generate room based clean buttons (requires Child DTH)
+ *	17-04-2020: 	1.2.6c - Notification workaround to fix issue caused by change in ST platform.
  *	07-04-2020:	1.2.6b - Handle regularly changing secret key from Neato API.
  *	05-09-2019:	1.2.6 - Option to delay cleaning if bin is full.
  *	05-09-2019:	1.2.5 - Handle new Long Secret Key format for future Neato Botvac firmware.
@@ -1422,4 +1423,42 @@ def clientSecret() {
 	} else {
 		return appSettings.clientSecret
 	}
+}
+
+def checkChild(devID) {
+	def s = false
+	def children = getChildDevices()
+	children.each { child -> if (child.deviceNetworkId == devID) {s = true} }
+	return s
+}
+
+def createButtons() {
+	log.debug "Creating Clean Buttons"
+                def resp2 = parent.beehiveGET("/users/me/robots/${device.deviceNetworkId.tokenize("|")[0]}/persistent_maps")
+                def mapIDx = resp2.data[0].id
+                def resp5= nucleoPOST("/messages", '{"reqId": "77", "cmd": "getMapBoundaries", "params": {"mapId": "' + mapIDx + '"}}')
+                def i = 0
+                while (resp5.data.data.boundaries[i].name != " ") {
+                	log.debug("boundariesX: ${resp5.data.data.boundaries[i].name}")
+                    def roomName = "Clean Button " + resp5.data.data.boundaries[i].name
+                    def roomID = resp5.data.data.boundaries[i].id
+                    def roomDevID = "NCB-" + roomID
+                    i=i+1                        		
+                            if (!checkChild(roomDevID)) {
+                                log.info("Adding Neato Botvac Clean Button ${roomDevID}: ${roomName}")
+
+                                def data = [
+                                    name: roomName,
+                                    label: roomName,
+                                    completedSetup: true
+                                ]
+                                def childButton = addChildDevice(parent.app.namespace, "Neato Botvac Clean Button", roomDevID, null, data)
+                                childButton.setRoomID(roomID)
+                                childButton.refresh()
+
+                                log.debug "Created ${roomName} with id: ${roomDevID}"
+                            } else {
+                                log.debug "found ${roomName} with id ${roomDevID} already exists"
+                            } 
+                }
 }
