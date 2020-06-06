@@ -13,6 +13,7 @@
  *  for the specific language governing permissions and limitations under the License.
  *
  *  VERSION HISTORY
+ *	06-06-2020:	1.14 - Added code to allow for creation of momentary buttons to clean by room (requires Child DTH)
  *	07-04-2020:	1.13b - Handle regularly changing secret key from Neato API.
  *  05-09-2019: 1.13 - Handle new Long Secret Key format for future Neato Botvac firmware.
  *  23-12-2018: 1.12b - Fix to better support future D3/D5 firmware updates.
@@ -87,6 +88,7 @@ metadata {
         command "setPersistentMapMode", ["string"]
         command "setSecretKey", ["string"]
         command "findMe"
+	command "createButtons"
 
 		attribute "network","string"
 		attribute "bin","string"
@@ -193,12 +195,15 @@ metadata {
         	state("off", label: 'STOPPED', action: "switch.on", icon: "https://raw.githubusercontent.com/alyc100/SmartThingsPublic/master/devicetypes/alyc100/laser-guided-navigation.png", backgroundColor: "#ffffff", nextState:"on")
 			state("on", label: 'CLEANING', action: "switch.off", icon: "https://raw.githubusercontent.com/alyc100/SmartThingsPublic/master/devicetypes/alyc100/best-pet-hair-cleaning.png", backgroundColor: "#79b821", nextState:"off")
 			state("offline", label:'${name}', icon:"https://raw.githubusercontent.com/alyc100/SmartThingsPublic/master/devicetypes/alyc100/laser-guided-navigation.png", backgroundColor:"#bc2323")
-        }
+        	}
+	standardTile("createcleanbuttons", "device.switch", width: 2, height: 2, inactiveLabel: false, canChangeIcon: false, decoration: "flat") {
+			state("default", label:'create clean buttons', action:"createButtons", icon:"st.secondary.refresh-icon")
+		}
         
         htmlTile(name:"mapHTML", action: "getMapHTML", width: 6, height: 9, whiteList: ["neatorobotics.s3.amazonaws.com", "raw.githubusercontent.com"])
         
 		main("switch")
-		details(["clean","smartScheduleStatusMessage", "forceCleanStatusMessage", "status", "battery", "charging", "bin", "dockStatus", "dockHasBeenSeen", "cleaningMode", "navigationMode", "persistentMapMode", "scheduled", "resetSmartSchedule", "network", "refresh", "mapHTML"])
+		details(["clean","smartScheduleStatusMessage", "forceCleanStatusMessage", "status", "battery", "charging", "bin", "dockStatus", "dockHasBeenSeen", "cleaningMode", "navigationMode", "persistentMapMode", "scheduled", "resetSmartSchedule", "network", "refresh", "mapHTML", "createcleanbuttons"])
 	}
 }
 
@@ -988,3 +993,48 @@ private def getFileBase64(url, preType, fileType) {
 
 def cssUrl()	 { return "https://raw.githubusercontent.com/desertblade/ST-HTMLTile-Framework/master/css/smartthings.css" }
 def nucleoURL(path = '/') 			 { return "https://nucleo.neatocloud.com:4443/vendors/neato/robots/${device.deviceNetworkId.tokenize("|")[0]}${path}" }
+
+def checkChild(devID) {
+	def s = false
+	def children = getChildDevices()
+	children.each { child -> if (child.deviceNetworkId == devID) {s = true} }
+	return s
+}
+
+def createButtons() {
+	log.debug "Creating Clean Buttons"
+                def resp2 = parent.beehiveGET("/users/me/robots/${device.deviceNetworkId.tokenize("|")[0]}/persistent_maps")
+                def mapIDx = resp2.data[0].id
+                def resp5= nucleoPOST("/messages", '{"reqId": "77", "cmd": "getMapBoundaries", "params": {"mapId": "' + mapIDx + '"}}')
+                //log.debug("getMapHTML map ID: ${mapIDx}")
+                //log.debug("boundariesX: ${resp5.data}")
+                def i = 0
+                while (resp5.data.data.boundaries[i].name != " ") {
+                	log.debug("boundariesX: ${resp5.data.data.boundaries[i].name}")
+                    def roomName = "Clean Button " + resp5.data.data.boundaries[i].name
+                    def roomID = resp5.data.data.boundaries[i].id
+                    def roomDevID = "NCB-" + roomID
+                    i=i+1
+                    		
+                    		//def childButton = getChildDevice(roomDevID)	
+                            if (!checkChild(roomDevID)) {
+                            //if (!childButton) { 
+                                log.info("Adding Neato Botvac Clean Button ${roomDevID}: ${roomName}")
+
+                                def data = [
+                                    name: roomName,
+                                    label: roomName,
+                                    completedSetup: true
+                                ]
+                                def childButton = addChildDevice(parent.app.namespace, "Neato Botvac Clean Button", roomDevID, null, data)
+                                childButton.setRoomID(roomID)
+                                childButton.refresh()
+
+                                log.debug "Created ${roomName} with id: ${roomDevID}"
+                            } else {
+                                log.debug "found ${roomName} with id ${roomDevID} already exists"
+                            } 
+                }
+                //def child = addChildDevice("smartthings", "Neato Botvac Clean Button", "Clean001", null, [name: "Clean001", label: "CleanKitchen", completedSetup: true])
+
+}
